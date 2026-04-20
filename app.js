@@ -9,19 +9,31 @@ const firebaseConfig = {
   measurementId: "G-6YG4FEB56R"
 };
 
-const useFirebase = true; 
+const useFirebase = true; // trueでクラウドモード（ログイン必須）、falseでローカルモード（ログイン不要）
 let db = null;
-let firebaseDocId = "my_lifeos_data";
+let auth = null;
+let provider = null;
+let firebaseDocId = "local_user"; // ログイン成功時にUIDに置き換わります
 
 async function initFirebase() {
-    if (!useFirebase || !firebaseConfig.apiKey) return;
+    if (!useFirebase || !firebaseConfig.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY") return false;
     try {
         const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js");
         const { getFirestore, doc, getDoc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js");
+        const { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } = await import("https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js");
+        
         const app = initializeApp(firebaseConfig);
         db = getFirestore(app);
+        auth = getAuth(app);
+        provider = new GoogleAuthProvider();
+        
         window.fbSetDoc = setDoc; window.fbGetDoc = getDoc; window.fbDoc = doc;
-    } catch (e) { console.error("Firebase init error:", e); }
+        window.fbSignIn = () => signInWithPopup(auth, provider);
+        window.fbSignOut = () => signOut(auth);
+        window.fbOnAuth = onAuthStateChanged;
+        
+        return true;
+    } catch (e) { console.error("Firebase init error:", e); return false; }
 }
 
 /* --- 初期設定・状態管理 --- */
@@ -36,13 +48,15 @@ let charts = {};
 window.jumpToDate = jumpToDate;
 
 async function loadState() {
-    if (useFirebase && db) {
+    if (useFirebase && db && firebaseDocId !== "local_user") {
         try { const snap = await window.fbGetDoc(window.fbDoc(db, "users", firebaseDocId)); if (snap.exists()) return snap.data(); } catch(e){}
     }
     return JSON.parse(localStorage.getItem('lifeos_pro'));
 }
 async function saveState() {
-    if (useFirebase && db) { try { await window.fbSetDoc(window.fbDoc(db, "users", firebaseDocId), appState); } catch(e){} } 
+    if (useFirebase && db && firebaseDocId !== "local_user") { 
+        try { await window.fbSetDoc(window.fbDoc(db, "users", firebaseDocId), appState); } catch(e){} 
+    } 
     else { localStorage.setItem('lifeos_pro', JSON.stringify(appState)); }
 }
 async function setState(updater, reRender = true) {
@@ -60,13 +74,8 @@ function initData() {
 
     if (!appState.settings.mealCategories) {
         appState.settings.mealCategories =[
-            { id: "dorm_bf", name: "寮食(朝)", price: 300 },
-            { id: "dorm_lu", name: "寮食(昼)", price: 400 },
-            { id: "dorm_di", name: "寮食(夜)", price: 500 },
-            { id: "out", name: "外食", price: 1000 },
-            { id: "store", name: "コンビニ等", price: 500 },
-            { id: "cook", name: "自炊", price: 300 },
-            { id: "none", name: "なし", price: 0 }
+            { id: "dorm_bf", name: "寮食(朝)", price: 300 }, { id: "dorm_lu", name: "寮食(昼)", price: 400 }, { id: "dorm_di", name: "寮食(夜)", price: 500 },
+            { id: "out", name: "外食", price: 1000 }, { id: "store", name: "コンビニ等", price: 500 }, { id: "cook", name: "自炊", price: 300 }, { id: "none", name: "なし", price: 0 }
         ];
     }
 
@@ -85,11 +94,7 @@ function initData() {
         if (d.meals) {['bf', 'lu', 'di'].forEach(k => {
                 let m = d.meals[k];
                 if (m && m.type && !m.categoryId) {
-                    if (m.type === 'dorm') m.categoryId = `dorm_${k}`;
-                    else if (m.type === 'out') m.categoryId = 'out';
-                    else if (m.type === 'store') m.categoryId = 'store';
-                    else if (m.type === 'cook') m.categoryId = 'cook';
-                    else m.categoryId = 'none';
+                    if (m.type === 'dorm') m.categoryId = `dorm_${k}`; else if (m.type === 'out') m.categoryId = 'out'; else if (m.type === 'store') m.categoryId = 'store'; else if (m.type === 'cook') m.categoryId = 'cook'; else m.categoryId = 'none';
                     delete m.type;
                 }
             });
@@ -104,9 +109,7 @@ function ensureDate(dateStr) {
     if (!d.reflection) d.reflection = { keep: "", problem: "", try: "" };
     if (!d.todayMemo) d.todayMemo = "";
     if (!d.meals) d.meals = {};
-    ['bf', 'lu', 'di'].forEach(k => {
-        if (!d.meals[k]) d.meals[k] = { categoryId: 'none', amount: 0, memo: '' };
-    });
+    ['bf', 'lu', 'di'].forEach(k => { if (!d.meals[k]) d.meals[k] = { categoryId: 'none', amount: 0, memo: '' }; });
 }
 
 function ensureFinanceMonth(monthStr) {
@@ -114,10 +117,9 @@ function ensureFinanceMonth(monthStr) {
     if (!f) { f = { month: monthStr, income: 0, extraIncome: 0, fixed: 0, loan: 0, savings: 0, investment: 0, expenses: [], carriers:[{ name: "メイン", limit: 30, used: 0 }] }; appState.finance.push(f); }
 }
 
-// ★ サブスク自動登録の実行処理
+// サブスク自動登録
 function processAutoSubscriptions() {
     if (!appState.settings.subscriptions || appState.settings.subscriptions.length === 0) return;
-    
     const today = new Date();
     const monthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
     const currentDay = today.getDate();
@@ -128,54 +130,69 @@ function processAutoSubscriptions() {
 
     appState.settings.subscriptions.forEach(sub => {
         if (currentDay >= sub.day) {
-            // 今月の支出にすでに自動登録されているか確認
             const exists = finMonth.expenses.some(e => e.isSubscription === true && e.name === sub.name);
             if (!exists) {
                 finMonth.expenses.push({
-                    id: Date.now() + Math.random(),
-                    date: String(sub.day).padStart(2, '0'),
-                    name: sub.name,
-                    amount: sub.amount,
-                    category: "固定費",
-                    payment: "クレカ",
-                    tags: ["サブスク", "自動"],
-                    rating: 2,
-                    isAdvance: false,
-                    isSubscription: true,
-                    memo: "自動追加"
+                    id: Date.now() + Math.random(), date: String(sub.day).padStart(2, '0'),
+                    name: sub.name, amount: sub.amount, category: "固定費", payment: "クレカ",
+                    tags: ["サブスク", "自動"], rating: 2, isAdvance: false, isSubscription: true, memo: "自動追加"
                 });
                 updated = true;
             }
         }
     });
-
     if (updated) saveState();
 }
 
-/* --- DOMヘルパー --- */
-function el(tag, attrs = {}, ...children) {
-    const e = document.createElement(tag);
-    for (const k in attrs) {
-        if (k.startsWith('on') && typeof attrs[k] === 'function') e.addEventListener(k.substring(2).toLowerCase(), attrs[k]);
-        else if (k === 'className') e.className = attrs[k];
-        else e[k] = attrs[k];
-    }
-    children.forEach(c => {
-        if (typeof c === 'string' || typeof c === 'number') e.appendChild(document.createTextNode(c));
-        else if (c instanceof Node) e.appendChild(c);
-    });
-    return e;
-}
-
-/* --- 初期化 --- */
+/* --- アプリ起動制御 (Auth連動) --- */
 window.addEventListener('DOMContentLoaded', async () => {
-    await initFirebase();
+    const isFbReady = await initFirebase();
+    
+    if (useFirebase && isFbReady) {
+        // Firebaseログインの監視
+        window.fbOnAuth(auth, async (user) => {
+            if (user) {
+                firebaseDocId = user.uid; // あなた専用のIDをセット
+                document.getElementById('login-screen').style.display = 'none';
+                document.getElementById('app-screen').style.display = 'block';
+                await startApp();
+            } else {
+                document.getElementById('login-screen').style.display = 'flex';
+                document.getElementById('app-screen').style.display = 'none';
+            }
+        });
+        
+        document.getElementById('btn-login').addEventListener('click', async () => {
+            try { await window.fbSignIn(); } catch(e) { alert("ログインエラー"); }
+        });
+        document.getElementById('btn-logout').addEventListener('click', async () => {
+            await window.fbSignOut();
+            location.reload();
+        });
+    } else {
+        // Firebaseを利用しない（ローカルモード）
+        document.getElementById('login-screen').style.display = 'none';
+        document.getElementById('app-screen').style.display = 'block';
+        await startApp();
+    }
+});
+
+async function startApp() {
     appState = await loadState();
     initData(); 
-    processAutoSubscriptions(); // ★ 起動時にサブスクチェック
+    processAutoSubscriptions(); 
     ensureDate(currentDate); ensureFinanceMonth(currentDate.slice(0,7));
     document.getElementById('input-date').value = currentDate;
 
+    if (!window.appStarted) {
+        setupEventListeners();
+        window.appStarted = true;
+    }
+    renderActiveTab();
+}
+
+/* --- イベントリスナー設定 --- */
+function setupEventListeners() {
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', (e) => {
             document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -190,12 +207,15 @@ window.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('input-date').addEventListener('change', e => jumpToDate(e.target.value));
     document.getElementById('btn-prev-day').addEventListener('click', () => jumpToDate(shiftDate(currentDate, -1)));
     document.getElementById('btn-next-day').addEventListener('click', () => jumpToDate(shiftDate(currentDate, 1)));
+    
     document.getElementById('btn-add-task').addEventListener('click', () => {
         const text = document.getElementById('task-text').value.trim();
         if(text) setState(s => s.dates[currentDate].tasks.push({ id: Date.now(), text, category: document.getElementById('task-cat').value, done: false }));
         document.getElementById('task-text').value = "";
     });
-    document.getElementById('today-memo').addEventListener('input', e => setState(s => s.dates[currentDate].todayMemo = e.target.value, false));['keep', 'problem', 'try'].forEach(k => document.getElementById(`ref-${k}`).addEventListener('input', e => setState(s => s.dates[currentDate].reflection[k] = e.target.value, false)));
+    
+    document.getElementById('today-memo').addEventListener('input', e => setState(s => s.dates[currentDate].todayMemo = e.target.value, false));
+    ['keep', 'problem', 'try'].forEach(k => document.getElementById(`ref-${k}`).addEventListener('input', e => setState(s => s.dates[currentDate].reflection[k] = e.target.value, false)));
 
     document.getElementById('cal-prev').addEventListener('click', () => { calDate.setMonth(calDate.getMonth()-1); renderCalendar(); });
     document.getElementById('cal-next').addEventListener('click', () => { calDate.setMonth(calDate.getMonth()+1); renderCalendar(); });
@@ -215,8 +235,22 @@ window.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('file-import').addEventListener('change', importData);
     
     setupModals();
-    renderActiveTab();
-});
+}
+
+/* --- DOMヘルパー --- */
+function el(tag, attrs = {}, ...children) {
+    const e = document.createElement(tag);
+    for (const k in attrs) {
+        if (k.startsWith('on') && typeof attrs[k] === 'function') e.addEventListener(k.substring(2).toLowerCase(), attrs[k]);
+        else if (k === 'className') e.className = attrs[k];
+        else e[k] = attrs[k];
+    }
+    children.forEach(c => {
+        if (typeof c === 'string' || typeof c === 'number') e.appendChild(document.createTextNode(c));
+        else if (c instanceof Node) e.appendChild(c);
+    });
+    return e;
+}
 
 function shiftDate(dateStr, days) { let d = new Date(dateStr); d.setDate(d.getDate() + days); return d.toISOString().split('T')[0]; }
 function jumpToDate(dateStr) { currentDate = dateStr; document.getElementById('input-date').value = currentDate; ensureDate(currentDate); if(activeTab==='view-today') renderToday(); }
@@ -238,7 +272,6 @@ function renderToday() {
     document.getElementById('ref-try').value = d.reflection?.try || "";
     
     let mealTotal = 0;['bf', 'lu', 'di'].forEach(k => mealTotal += Number(d.meals[k]?.amount || 0));
-    
     let expTotal = 0;
     const finMonth = appState.finance.find(f => f.month === currentDate.slice(0,7));
     if (finMonth) expTotal = finMonth.expenses.filter(e => e.date === currentDate.slice(8,10) && !e.isAdvance).reduce((sum, e) => sum + Number(e.amount), 0);
@@ -354,7 +387,7 @@ function renderMemos() {
     });
 }
 
-/* --- 4. 家計・GB管理 --- */
+/* --- 4. 家計管理 --- */
 function renderFinance() {
     const sel = document.getElementById('fin-month-select');
     sel.innerHTML = "";
@@ -412,7 +445,6 @@ function drawFinanceMonth(monthStr) {
     );
 
     const gridDiv = el('div', {className: 'grid-layout'});
-    
     const leftCol = el('div', {className: 'col'});
     leftCol.appendChild(el('div', {className:'card'},
         el('h2', {className:'red'}, "📝 変動費 (支出明細)"),
@@ -432,7 +464,6 @@ function drawFinanceMonth(monthStr) {
     ));
 
     const rightCol = el('div', {className: 'col'});
-
     const createAcc = (title, contentEls) => {
         const wrap = el('div', {className:'card', style:'padding:0; overflow:hidden;'});
         const head = el('div', {className:'acc-header', onClick:(e)=>{ e.currentTarget.nextElementSibling.classList.toggle('open'); }}, el('span',{},title), el('span',{},"▼"));
@@ -461,8 +492,7 @@ function drawFinanceMonth(monthStr) {
         el('button', {className:'btn-sub', onClick:()=>setState(s=>s.finance[mIdx].carriers.push({name:"サブ", limit:10, used:0}))}, "＋ 回線追加")
     ]));
 
-    gridDiv.append(leftCol, rightCol);
-    container.append(sumCard, gridDiv);
+    gridDiv.append(leftCol, rightCol); container.append(sumCard, gridDiv);
 }
 
 /* --- モーダル・保存 --- */
@@ -477,10 +507,8 @@ function setupModals() {
 
 function openExpenseModal(exp, mIdx) {
     currentMIdx = mIdx;
-    const catSel = document.getElementById('exp-category'); catSel.innerHTML = "";
-    appState.settings.categories.forEach(c => catSel.appendChild(new Option(c.name, c.name)));
-    const paySel = document.getElementById('exp-payment'); paySel.innerHTML = "";
-    appState.settings.paymentMethods.forEach(p => paySel.appendChild(new Option(p, p)));
+    const catSel = document.getElementById('exp-category'); catSel.innerHTML = ""; appState.settings.categories.forEach(c => catSel.appendChild(new Option(c.name, c.name)));
+    const paySel = document.getElementById('exp-payment'); paySel.innerHTML = ""; appState.settings.paymentMethods.forEach(p => paySel.appendChild(new Option(p, p)));
 
     if (exp) {
         document.getElementById('exp-id').value = exp.id; document.getElementById('exp-date').value = exp.date;
@@ -531,11 +559,9 @@ function openAnnualModal() {
 
 /* --- 設定・インポート --- */
 function renderSettings() {
-    // 1. 食事カテゴリーの描画 (ドラッグ可能)
     const mcDiv = document.getElementById('settings-meals'); mcDiv.innerHTML = "";
     appState.settings.mealCategories.forEach((c, idx) => {
-        mcDiv.appendChild(el('div', {className:'flex list-item'},
-            el('span', {className:'drag-handle'}, "☰"),
+        mcDiv.appendChild(el('div', {className:'flex list-item'}, el('span', {className:'drag-handle'}, "☰"),
             el('input', {value:c.name, style:'flex:2;', onChange:e=>setState(s=>s.settings.mealCategories[idx].name=e.target.value, false)}),
             el('input', {type:'number', value:c.price, style:'flex:1;', onChange:e=>setState(s=>s.settings.mealCategories[idx].price=Number(e.target.value), false)}),
             el('button', {className:'btn-del', onClick:()=>setState(s=>s.settings.mealCategories.splice(idx,1))}, "✕")
@@ -544,13 +570,12 @@ function renderSettings() {
     enableDragSort('settings-meals', s => s.settings.mealCategories);
     document.getElementById('btn-add-meal-cat').onclick = () => setState(s => s.settings.mealCategories.push({id: "c_"+Date.now(), name:"新規", price: 0}));
 
-    // 2. 食事一括登録のセレクト構築
     ['bulk-bf', 'bulk-lu', 'bulk-di'].forEach(id => {
         const sel = document.getElementById(id); sel.innerHTML = "";
         appState.settings.mealCategories.forEach(c => sel.appendChild(new Option(c.name, c.id)));
     });
     document.getElementById('btn-bulk-meals').onclick = () => {
-        const sDate = document.getElementById('bulk-start').value; const eDate = document.getElementById('bulk-end').value;
+        const sDate = document.getElementById('bulk-start').value, eDate = document.getElementById('bulk-end').value;
         if(!sDate || !eDate || sDate > eDate) return alert("正しい期間を指定してください");
         const bfId = document.getElementById('bulk-bf').value, luId = document.getElementById('bulk-lu').value, diId = document.getElementById('bulk-di').value;
         const getP = (id) => appState.settings.mealCategories.find(x=>x.id===id).price;
@@ -566,14 +591,12 @@ function renderSettings() {
                 curr.setDate(curr.getDate() + 1);
             }
         });
-        alert(`${sDate} 〜 ${eDate} の食事を一括登録しました`);
+        alert("一括登録しました");
     };
 
-    // 3. 通常カテゴリ (ドラッグ可能)
     const catDiv = document.getElementById('settings-categories'); catDiv.innerHTML = "";
     appState.settings.categories.forEach((c, idx) => {
-        catDiv.appendChild(el('div', {className:'flex list-item'},
-            el('span', {className:'drag-handle'}, "☰"),
+        catDiv.appendChild(el('div', {className:'flex list-item'}, el('span', {className:'drag-handle'}, "☰"),
             el('input', {value:c.name, style:'flex:1;', onChange:e=>setState(s=>s.settings.categories[idx].name=e.target.value, false)}),
             el('input', {type:'number', value:c.budget, style:'flex:1;', onChange:e=>setState(s=>s.settings.categories[idx].budget=Number(e.target.value), false)}),
             el('button', {className:'btn-del', onClick:()=>setState(s=>s.settings.categories.splice(idx,1))}, "✕")
@@ -582,11 +605,9 @@ function renderSettings() {
     enableDragSort('settings-categories', s => s.settings.categories);
     document.getElementById('btn-add-category').onclick = () => setState(s => s.settings.categories.push({name:"新規", budget:10000}));
 
-    // 4. サブスク設定 (ドラッグ可能)
     const subDiv = document.getElementById('settings-subscriptions'); subDiv.innerHTML = "";
     appState.settings.subscriptions.forEach((sub, idx) => {
-        subDiv.appendChild(el('div', {className: 'flex list-item'},
-            el('span', {className:'drag-handle'}, "☰"),
+        subDiv.appendChild(el('div', {className: 'flex list-item'}, el('span', {className:'drag-handle'}, "☰"),
             el('input', {value: sub.name, placeholder: '名前', style: 'flex:2;', onChange: e => setState(s => s.settings.subscriptions[idx].name = e.target.value, false)}),
             el('input', {type: 'number', value: sub.amount, placeholder: '金額', style: 'flex:1;', onChange: e => setState(s => s.settings.subscriptions[idx].amount = Number(e.target.value), false)}),
             el('input', {type: 'number', value: sub.day, placeholder: '日', style: 'width:60px;', onChange: e => setState(s => s.settings.subscriptions[idx].day = Number(e.target.value), false)}),
@@ -596,11 +617,9 @@ function renderSettings() {
     enableDragSort('settings-subscriptions', s => s.settings.subscriptions);
     document.getElementById('btn-add-subscription').onclick = () => setState(s => s.settings.subscriptions.push({name: "新規サブスク", amount: 1000, day: 1}));
 
-    // 5. 支払い方法の設定 (ドラッグ可能リスト化)
     const payDiv = document.getElementById('settings-payments-list'); payDiv.innerHTML = "";
     appState.settings.paymentMethods.forEach((p, idx) => {
-        payDiv.appendChild(el('div', {className: 'flex list-item'},
-            el('span', {className:'drag-handle'}, "☰"),
+        payDiv.appendChild(el('div', {className: 'flex list-item'}, el('span', {className:'drag-handle'}, "☰"),
             el('input', {value: p, style: 'flex:1;', onChange: e => setState(s => s.settings.paymentMethods[idx] = e.target.value, false)}),
             el('button', {className: 'btn-del', onClick: () => setState(s => s.settings.paymentMethods.splice(idx, 1))}, "✕")
         ));
@@ -623,16 +642,5 @@ async function importData(e) {
 function enableDragSort(containerId, getArray) {
     const el = document.getElementById(containerId);
     if (!el) return;
-
-    new Sortable(el, {
-        animation: 150,
-        handle: '.drag-handle',
-        onEnd: (evt) => {
-            setState(s => {
-                const arr = getArray(s);
-                const [moved] = arr.splice(evt.oldIndex, 1);
-                arr.splice(evt.newIndex, 0, moved);
-            });
-        }
-    });
+    new Sortable(el, { animation: 150, handle: '.drag-handle', onEnd: (evt) => { setState(s => { const arr = getArray(s); const [moved] = arr.splice(evt.oldIndex, 1); arr.splice(evt.newIndex, 0, moved); }); } });
 }
