@@ -54,7 +54,7 @@ button:active { opacity: 0.7; }
 .view.active { display: block; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
-/* ★今日のサマリーのレイアウト（PC有効活用） */
+/* PCレイアウト */
 .today-summary-card { padding: 16px; display: flex; flex-direction: column; text-align: center; gap: 10px; }
 .summary-block { flex: 1; }
 .summary-label { font-size: 0.8rem; color: var(--gray); }
@@ -62,12 +62,10 @@ button:active { opacity: 0.7; }
 .summary-breakdown { font-size: 0.95rem; font-weight: bold; color: var(--text); margin-top: 8px; background: rgba(255,255,255,0.05); padding: 6px; border-radius: var(--radius); display: inline-block; }
 .summary-divider { display: none; }
 
-/* 設定画面の並べ替え用リスト要素 */
 .list-item { margin-bottom: 8px; background: #1c1c1e; padding: 4px; border-radius: var(--radius); border: 1px solid #2a2a2c; align-items: center; }
 .drag-handle { cursor: grab; color: var(--gray); padding: 0 8px; user-select: none; font-size: 1.2rem; }
 .drag-handle:active { cursor: grabbing; }
 
-/* PC・タブレット向けのグリッドレイアウト */
 @media (min-width: 768px) {
     body { padding-bottom: 0; padding-top: 60px; }
     .main-container { max-width: 1000px; margin: 0 auto; padding: 20px; }
@@ -76,8 +74,6 @@ button:active { opacity: 0.7; }
     .nav-item.active { border-bottom: 2px solid var(--primary); margin-top: 0; margin-bottom: -1px; }
     
     .grid-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
-
-    /* サマリーの横並び */
     .today-summary-card { flex-direction: row; align-items: center; justify-content: space-between; text-align: left; }
     .summary-block { display: flex; flex-direction: column; justify-content: center; }
     .summary-divider { display: block; width: 1px; height: 50px; background: #333; margin: 0 20px; }
@@ -85,13 +81,11 @@ button:active { opacity: 0.7; }
     .summary-breakdown { margin-top: 4px; background: transparent; padding: 0; display: block; font-size: 1.1rem;}
 }
 
-/* アコーディオン (開閉UI) */
 .acc-header { display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #1c1c1e; border: 1px solid #2a2a2c; border-radius: var(--radius); cursor: pointer; font-size: 0.9rem; font-weight: bold; margin-bottom: 8px; }
 .acc-header:active { background: #2c2c2e; }
 .acc-content { display: none; padding: 10px 0; border-top: 1px dashed #333; }
 .acc-content.open { display: block; }
 
-/* その他UI */
 .date-nav { justify-content: center; margin: 10px 0; }
 .date-display { width:auto; font-size:1.2rem; font-weight:bold; background:transparent; border:none; text-align:center; padding: 0;}
 #today-memo { background:transparent; border:none; padding:0; min-height:80px; font-size:1rem; }
@@ -120,3 +114,6 @@ button:active { opacity: 0.7; }
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); display: none; justify-content: center; align-items: center; z-index: 1000; padding: 20px;}
 .modal-overlay.active { display: flex; }
 .modal-content { background: var(--card); padding: 20px; border-radius: var(--radius); width: 100%; max-width: 400px; max-height: 90vh; overflow-y: auto; border: 1px solid #333;}
+
+/* ログイン画面用 */
+.login-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg); display: flex; justify-content: center; align-items: center; z-index: 2000; }
