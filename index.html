@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>LifeOS Pro Max - Cyber Edition</title>
     <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 </head>
@@ -53,7 +54,6 @@
             </div>
 
             <div class="grid-layout">
-                <!-- 左カラム: ご飯・タスク -->
                 <div class="col">
                     <div class="card">
                         <h2>🍚 今日のご飯管理</h2>
@@ -61,7 +61,7 @@
                     </div>
 
                     <div class="card">
-                        <h2>📝 今日のタスク・リマインダー</h2>
+                        <h2>📝 タスク・リマインダー</h2>
                         <div class="flex" style="margin-bottom:5px;">
                             <select id="task-cat" style="width: 35%;">
                                 <option value="注意">注意</option>
@@ -72,14 +72,14 @@
                             <input type="text" id="task-text" placeholder="やるべきこと...">
                         </div>
                         <div class="flex" style="margin-bottom:10px;">
-                            <input type="datetime-local" id="task-time" style="flex:1; font-size:0.8rem;">
+                            <input type="date" id="task-date" style="flex:1; font-size:0.8rem;">
+                            <input type="time" id="task-time" style="width:80px; font-size:0.8rem;">
                             <button id="btn-add-task" class="btn-primary" style="width:auto; padding:0 20px;">追加</button>
                         </div>
                         <div id="task-list"></div>
                     </div>
                 </div>
                 
-                <!-- 右カラム: メモ・今後のリマインダー (旧KPTの場所) -->
                 <div class="col">
                     <div class="card">
                         <h2 class="green">💡 今日のメモ</h2>
@@ -87,7 +87,7 @@
                     </div>
 
                     <div class="card" style="border-left: 3px solid var(--sub);">
-                        <h2 class="purple">🔔 近日中のリマインダー・予定</h2>
+                        <h2 class="purple">🔔 近日中の予定・リマインダー</h2>
                         <p style="font-size:0.75rem; color:var(--gray); margin-bottom:10px;">期限が設定されている未完了のタスク一覧</p>
                         <div id="upcoming-reminders-list"></div>
                     </div>
@@ -106,11 +106,11 @@
                             <button id="cal-next" class="btn-sub" style="width:auto;">来月 ▶</button>
                         </div>
                         
-                        <!-- ★食事一括入力トグル -->
                         <div style="background: rgba(10,132,255,0.1); border: 1px solid var(--primary); padding:8px; border-radius:var(--radius); margin-bottom:10px;">
                             <label class="flex" style="color:var(--text); font-weight:bold;">
-                                <input type="checkbox" id="toggle-cal-meal-mode" style="width:20px; height:20px;"> 🍚 食事一括入力モード (タップで塗りつぶし)
+                                <input type="checkbox" id="toggle-cal-meal-mode" style="width:20px; height:20px;"> 🍚 食事一括入力モード
                             </label>
+                            <div style="font-size:0.7rem; color:var(--gray); margin-top:4px;">タップで塗りつぶし / ダブルタップで取り消し(リセット)</div>
                             <div id="cal-meal-toolbar" class="grid-3" style="display:none; margin-top:8px;">
                                 <select id="cal-bulk-bf"></select>
                                 <select id="cal-bulk-lu"></select>
@@ -177,7 +177,8 @@
                         <h2 class="red">🎨 システム・テーマ設定</h2>
                         <select id="settings-theme" style="font-weight:bold;">
                             <option value="default">🌐 Standard (デフォルト)</option>
-                            <option value="nerv">⚠️ NERV (EVA風 / サイバー)</option>
+                            <option value="nerv_magi">⚠️ NERV: MAGI (オレンジ明朝)</option>
+                            <option value="nerv_term">💻 NERV: Terminal (旧劇・グリーン等幅)</option>
                         </select>
                     </div>
 
@@ -197,7 +198,7 @@
                 <div class="col">
                     <div class="card" style="border-left: 3px solid var(--purple);">
                         <h2 class="purple">🔄 サブスクリプション管理</h2>
-                        <p style="font-size:0.75rem; color:var(--gray);">カレンダーに予定額が表示されます。<br>【今年の想定支出合計: <strong id="sub-annual-total" style="color:var(--warn);">¥0</strong>】</p>
+                        <p style="font-size:0.75rem; color:var(--gray);">【今年の想定支出合計: <strong id="sub-annual-total" style="color:var(--warn); font-size:1rem;">¥0</strong>】</p>
                         <div id="settings-subscriptions"></div>
                         <button id="btn-add-subscription" class="btn-sub" style="margin-top:10px;">＋ サブスク追加</button>
                     </div>
@@ -221,7 +222,7 @@
     </div>
 </div>
 
-<!-- モーダル群 (変更なし) -->
+<!-- モーダル群 -->
 <div id="modal-expense" class="modal-overlay">
     <div class="modal-content">
         <h2>支出の詳細</h2>
