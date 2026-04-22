@@ -8,6 +8,7 @@ const firebaseConfig = {
   appId: "1:161575735872:web:1a8835063001ae5cfb05a5",
   measurementId: "G-6YG4FEB56R"
 };
+
 const useFirebase = true; 
 let db = null; let auth = null; let provider = null;
 let firebaseDocId = "local_user";
@@ -31,7 +32,8 @@ let appState = null;
 let currentDate = new Date().toISOString().split('T')[0];
 let calDate = new Date(); let calSelectedDate = currentDate;
 let activeTab = 'view-today';
-let isMealMode = false; // ★カレンダーの食事一括モードフラグ
+let isMealMode = false;
+let lastTapDate = null; let lastTapTime = 0; // ダブルタップ判定用
 let charts = {};
 window.jumpToDate = jumpToDate;
 
@@ -52,9 +54,12 @@ function initData() {
     if (!appState.settings.categories) appState.settings.categories =[ { name: "食費", budget: 30000 }, { name: "日用品", budget: 10000 }, { name: "交際費", budget: 15000 }, { name: "交通", budget: 10000 }, { name: "趣味", budget: 10000 }, { name: "その他", budget: 5000 } ];
     if (!appState.settings.paymentMethods) appState.settings.paymentMethods =["現金", "クレカ", "PayPay"];
     
-    // サブスクのマイグレーション(isActive追加)
+    const cmStr = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
     if (!appState.settings.subscriptions) appState.settings.subscriptions =[];
-    appState.settings.subscriptions.forEach(s => { if(s.isActive === undefined) s.isActive = true; });
+    appState.settings.subscriptions.forEach(s => { 
+        if(s.isActive === undefined) s.isActive = true; 
+        if(s.startMonth === undefined) s.startMonth = cmStr; // サブスク開始月のマイグレーション
+    });
 
     if (!appState.settings.mealCategories) {
         appState.settings.mealCategories =[
@@ -82,7 +87,7 @@ function ensureFinanceMonth(monthStr) {
     if (!f) { f = { month: monthStr, income: 0, extraIncome: 0, fixed: 0, loan: 0, savings: 0, investment: 0, expenses: [], carriers:[{ name: "メイン", limit: 30, used: 0 }] }; appState.finance.push(f); }
 }
 
-// サブスク自動登録
+// サブスク自動登録 (開始月・稼働中を考慮)
 function processAutoSubscriptions() {
     if (!appState.settings.subscriptions || appState.settings.subscriptions.length === 0) return;
     const today = new Date(); const monthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`; const currentDay = today.getDate();
@@ -90,7 +95,7 @@ function processAutoSubscriptions() {
     let updated = false;
 
     appState.settings.subscriptions.forEach(sub => {
-        if (sub.isActive && currentDay >= sub.day) {
+        if (sub.isActive && sub.startMonth <= monthStr && currentDay >= sub.day) {
             const exists = finMonth.expenses.some(e => e.isSubscription === true && e.name === sub.name);
             if (!exists) {
                 finMonth.expenses.push({
@@ -105,7 +110,6 @@ function processAutoSubscriptions() {
     if (updated) saveState();
 }
 
-// アプリ起動
 window.addEventListener('DOMContentLoaded', async () => {
     const isFbReady = await initFirebase();
     if (useFirebase && isFbReady) {
@@ -118,12 +122,19 @@ window.addEventListener('DOMContentLoaded', async () => {
     } else { document.getElementById('login-screen').style.display = 'none'; document.getElementById('app-screen').style.display = 'block'; await startApp(); }
 });
 
+function applyTheme(theme) {
+    document.body.className = '';
+    if(theme === 'nerv_magi') document.body.classList.add('theme-nerv_magi');
+    else if(theme === 'nerv_term') document.body.classList.add('theme-nerv_term');
+}
+
 async function startApp() {
     appState = await loadState(); initData(); processAutoSubscriptions();
-    document.body.classList.toggle('theme-nerv', appState.settings.theme === 'nerv');
+    applyTheme(appState.settings.theme);
     
     ensureDate(currentDate); ensureFinanceMonth(currentDate.slice(0,7));
     document.getElementById('input-date').value = currentDate;
+    document.getElementById('task-date').value = currentDate; // タスク日付のデフォルト
     if (!window.appStarted) { setupEventListeners(); window.appStarted = true; }
     renderActiveTab();
 }
@@ -141,9 +152,13 @@ function setupEventListeners() {
     document.getElementById('btn-prev-day').addEventListener('click', () => jumpToDate(shiftDate(currentDate, -1)));
     document.getElementById('btn-next-day').addEventListener('click', () => jumpToDate(shiftDate(currentDate, 1)));
     
+    // リマインダー追加
     document.getElementById('btn-add-task').addEventListener('click', () => {
         const text = document.getElementById('task-text').value.trim();
-        const remindAt = document.getElementById('task-time').value;
+        const tDate = document.getElementById('task-date').value;
+        const tTime = document.getElementById('task-time').value;
+        const remindAt = (tDate && tTime) ? `${tDate} ${tTime}` : (tDate ? tDate : "");
+        
         if(text) setState(s => s.dates[currentDate].tasks.push({ id: Date.now(), text, category: document.getElementById('task-cat').value, remindAt, done: false }));
         document.getElementById('task-text').value = ""; document.getElementById('task-time').value = "";
     });
@@ -175,7 +190,7 @@ function setupEventListeners() {
         a.download = `LifeOS_ProMax_${currentDate}.json`; a.click();
     });
     document.getElementById('file-import').addEventListener('change', importData);
-    document.getElementById('settings-theme').addEventListener('change', e => setState(s => { s.settings.theme = e.target.value; document.body.classList.toggle('theme-nerv', s.settings.theme === 'nerv'); }));
+    document.getElementById('settings-theme').addEventListener('change', e => setState(s => { s.settings.theme = e.target.value; applyTheme(s.settings.theme); }));
     setupModals();
 }
 
@@ -189,7 +204,7 @@ function el(tag, attrs = {}, ...children) {
     return e;
 }
 function shiftDate(dateStr, days) { let d = new Date(dateStr); d.setDate(d.getDate() + days); return d.toISOString().split('T')[0]; }
-function jumpToDate(dateStr) { currentDate = dateStr; document.getElementById('input-date').value = currentDate; ensureDate(currentDate); if(activeTab==='view-today') renderToday(); }
+function jumpToDate(dateStr) { currentDate = dateStr; document.getElementById('input-date').value = currentDate; document.getElementById('task-date').value = currentDate; ensureDate(currentDate); if(activeTab==='view-today') renderToday(); }
 function renderActiveTab() {
     if (activeTab === 'view-today') { renderToday(); renderUpcomingReminders(); }
     else if (activeTab === 'view-calendar') renderCalendar();
@@ -198,7 +213,6 @@ function renderActiveTab() {
     else if (activeTab === 'view-settings') renderSettings();
 }
 
-// カテゴリ色分けヘルパー
 function getCatColorClass(cat) {
     if(cat==='注意') return 'bg-warn'; if(cat==='リマインダー') return 'bg-purple'; if(cat==='業務') return 'bg-primary'; if(cat==='私用') return 'bg-sub'; return 'bg-gray';
 }
@@ -216,7 +230,7 @@ function renderToday() {
 
     const list = document.getElementById('task-list'); list.innerHTML = "";
     [...(d.tasks || [])].sort((a, b) => a.done - b.done).forEach(t => {
-        let timeStr = t.remindAt ? ` 🕒${t.remindAt.replace('T',' ')}` : '';
+        let timeStr = t.remindAt ? ` 🕒${t.remindAt}` : '';
         list.appendChild(el('div', { className: `task-item ${t.done ? 'done' : ''}` },
             el('input', { type: 'checkbox', className: 'task-checkbox', checked: t.done, onChange: () => setState(s => { const x = s.dates[currentDate].tasks.find(x=>x.id===t.id); if(x) x.done = !x.done; }) }),
             el('span', { className: `badge ${getCatColorClass(t.category)}` }, t.category),
@@ -238,15 +252,12 @@ function renderToday() {
     });
 }
 
-// リマインダー一覧表示
 function renderUpcomingReminders() {
     const list = document.getElementById('upcoming-reminders-list'); list.innerHTML = "";
     let upcoming = [];
     Object.keys(appState.dates).forEach(ds => {
-        if(ds < currentDate) return; // 過去は無視
-        appState.dates[ds].tasks.forEach(t => {
-            if(!t.done && t.remindAt) upcoming.push({ date: ds, ...t });
-        });
+        if(ds < currentDate) return;
+        appState.dates[ds].tasks.forEach(t => { if(!t.done && t.remindAt) upcoming.push({ date: ds, ...t }); });
     });
     upcoming.sort((a,b) => a.remindAt.localeCompare(b.remindAt));
     if(upcoming.length === 0) { list.innerHTML = '<div style="color:var(--gray); font-size:0.8rem;">予定されているリマインダーはありません</div>'; return; }
@@ -254,7 +265,7 @@ function renderUpcomingReminders() {
     upcoming.forEach(t => {
         list.appendChild(el('div', { className: 'task-item', style: 'padding:8px 0; border-bottom:1px dashed #333; font-size:0.9rem;' },
             el('span', { className: `badge ${getCatColorClass(t.category)}` }, t.category),
-            el('span', { style:'color:var(--purple); font-weight:bold;' }, t.remindAt.replace('T', ' ')),
+            el('span', { style:'color:var(--purple); font-weight:bold;' }, t.remindAt),
             el('span', { className: 'text' }, t.text)
         ));
     });
@@ -276,35 +287,55 @@ function renderCalendar() {
         let exps = finMonth ? finMonth.expenses.filter(e => e.date === String(d).padStart(2,'0') && !e.isAdvance) :[];
         let hasTask = data.tasks && data.tasks.length > 0; let hasMemo = !!data.todayMemo; let hasExp = exps.length > 0;
         
-        // カレンダーでのサブスク判定
         let hasSub = false;
-        appState.settings.subscriptions.forEach(sub => { if(sub.isActive && sub.day === d) hasSub = true; });
+        appState.settings.subscriptions.forEach(sub => { if(sub.isActive && sub.startMonth <= dateStr.slice(0,7) && sub.day === d) hasSub = true; });
 
         const dots = el('div', { className: 'dots' });
         if(hasTask) dots.appendChild(el('div', {className:'dot', style:'background:var(--primary)'}));
         if(hasMemo) dots.appendChild(el('div', {className:'dot', style:'background:var(--sub)'}));
         if(hasExp) dots.appendChild(el('div', {className:'dot', style:'background:var(--warn)'}));
-        if(hasSub) dots.appendChild(el('div', {className:'dot', style:'background:var(--purple)'})); // サブスクドット
+        if(hasSub) dots.appendChild(el('div', {className:'dot', style:'background:var(--purple)'}));
+
+        // 食事が1つでも「none」以外ならハイライト
+        let isMealFilled = data.meals && (data.meals.bf?.categoryId !== 'none' || data.meals.lu?.categoryId !== 'none' || data.meals.di?.categoryId !== 'none');
 
         let isPastOrToday = (y < todayObj.getFullYear()) || (y === todayObj.getFullYear() && m < todayObj.getMonth()) || (y === todayObj.getFullYear() && m === todayObj.getMonth() && d <= todayObj.getDate());
         let isNMD = isPastOrToday && !hasExp && (!data.meals || (data.meals.bf?.amount===0 && data.meals.lu?.amount===0 && data.meals.di?.amount===0));
 
-        let classes = 'cal-day'; if (dateStr === currentDate) classes += ' today'; if (dateStr === calSelectedDate) classes += ' selected';
+        let classes = 'cal-day'; 
+        if (dateStr === currentDate) classes += ' today'; 
+        if (dateStr === calSelectedDate) classes += ' selected';
+        if (isMealFilled) classes += ' meal-filled'; // ★ 塗りつぶし状態のクラス
 
         const dayEl = el('div', { 
             className: classes, 
             onClick: () => { 
                 if (isMealMode) {
-                    // 食事一括塗りつぶし処理
-                    const bfId = document.getElementById('cal-bulk-bf').value, luId = document.getElementById('cal-bulk-lu').value, diId = document.getElementById('cal-bulk-di').value;
-                    const getP = (id) => appState.settings.mealCategories.find(x=>x.id===id).price;
-                    setState(s => {
-                        if (!s.dates[dateStr]) s.dates[dateStr] = { tasks:[], todayMemo:"", meals:{ bf:{categoryId:'none',amount:0,memo:''}, lu:{categoryId:'none',amount:0,memo:''}, di:{categoryId:'none',amount:0,memo:''} } };
-                        if (!s.dates[dateStr].meals) s.dates[dateStr].meals = { bf:{categoryId:'none',amount:0,memo:''}, lu:{categoryId:'none',amount:0,memo:''}, di:{categoryId:'none',amount:0,memo:''} };
-                        s.dates[dateStr].meals.bf = { categoryId: bfId, amount: getP(bfId), memo: "" };
-                        s.dates[dateStr].meals.lu = { categoryId: luId, amount: getP(luId), memo: "" };
-                        s.dates[dateStr].meals.di = { categoryId: diId, amount: getP(diId), memo: "" };
-                    });
+                    const now = Date.now();
+                    // ダブルタップ判定 (400ms以内)
+                    if (lastTapDate === dateStr && now - lastTapTime < 400) {
+                        setState(s => {
+                            if (!s.dates[dateStr]) return;
+                            if (!s.dates[dateStr].meals) return;
+                            s.dates[dateStr].meals.bf = { categoryId: 'none', amount: 0, memo: "" };
+                            s.dates[dateStr].meals.lu = { categoryId: 'none', amount: 0, memo: "" };
+                            s.dates[dateStr].meals.di = { categoryId: 'none', amount: 0, memo: "" };
+                        });
+                        lastTapDate = null; // リセット
+                    } else {
+                        // シングルタップ (塗りつぶし)
+                        const bfId = document.getElementById('cal-bulk-bf').value, luId = document.getElementById('cal-bulk-lu').value, diId = document.getElementById('cal-bulk-di').value;
+                        const getP = (id) => appState.settings.mealCategories.find(x=>x.id===id).price;
+                        setState(s => {
+                            if (!s.dates[dateStr]) s.dates[dateStr] = { tasks:[], todayMemo:"", meals:{ bf:{categoryId:'none',amount:0,memo:''}, lu:{categoryId:'none',amount:0,memo:''}, di:{categoryId:'none',amount:0,memo:''} } };
+                            if (!s.dates[dateStr].meals) s.dates[dateStr].meals = { bf:{categoryId:'none',amount:0,memo:''}, lu:{categoryId:'none',amount:0,memo:''}, di:{categoryId:'none',amount:0,memo:''} };
+                            s.dates[dateStr].meals.bf = { categoryId: bfId, amount: getP(bfId), memo: "" };
+                            s.dates[dateStr].meals.lu = { categoryId: luId, amount: getP(luId), memo: "" };
+                            s.dates[dateStr].meals.di = { categoryId: diId, amount: getP(diId), memo: "" };
+                        });
+                        lastTapDate = dateStr;
+                        lastTapTime = now;
+                    }
                 } else {
                     calSelectedDate = dateStr; renderCalendar(); 
                 }
@@ -314,7 +345,6 @@ function renderCalendar() {
         body.appendChild(dayEl);
     }
     
-    // プレビュー描画 (食事モード中は隠す)
     if (isMealMode) { document.getElementById('cal-preview-container').style.display = 'none'; return; }
 
     document.getElementById('cal-preview-container').style.display = 'block'; document.getElementById('preview-title').innerText = calSelectedDate;
@@ -331,9 +361,8 @@ function renderCalendar() {
         div.appendChild(el('div', {}, `朝: ${getName(pData.meals.bf?.categoryId)} / 昼: ${getName(pData.meals.lu?.categoryId)} / 夜: ${getName(pData.meals.di?.categoryId)}`)); content.appendChild(div);
     }
     
-    // サブスクプレビュー追加
     let pSubs = [];
-    appState.settings.subscriptions.forEach(sub => { if(sub.isActive && sub.day === Number(calSelectedDate.slice(8,10))) pSubs.push(sub); });
+    appState.settings.subscriptions.forEach(sub => { if(sub.isActive && sub.startMonth <= calSelectedDate.slice(0,7) && sub.day === Number(calSelectedDate.slice(8,10))) pSubs.push(sub); });
     if(pSubs.length > 0) {
         const div = el('div', {className:'preview-box', style:'border: 1px solid var(--purple); background:rgba(191,90,242,0.1); margin-bottom:10px; padding:8px;'});
         div.appendChild(el('h3', {style:'color:var(--purple); border-bottom:none; margin:0 0 5px 0;'}, "🔄 サブスク予定"));
@@ -347,7 +376,7 @@ function renderCalendar() {
     }
 }
 
-/* --- 3,4 メモ/家計 (省略せず記述) --- */
+/* --- 3,4 メモ/家計 --- */
 function renderMemos() {
     const q = document.getElementById('memo-search').value.toLowerCase(); const list = document.getElementById('memo-list'); list.innerHTML = "";
     [...appState.memos].reverse().filter(m => (m.title+m.content).toLowerCase().includes(q)).forEach(m => {
@@ -357,19 +386,24 @@ function renderMemos() {
         ));
     });
 }
+
 function renderFinance() {
     const sel = document.getElementById('fin-month-select'); sel.innerHTML = ""; appState.finance.sort((a,b)=>a.month>b.month?-1:1).forEach(f => sel.appendChild(el('option', { value: f.month }, f.month)));
     sel.onchange = (e) => drawFinanceMonth(e.target.value);
     const curMonth = sel.value || currentDate.slice(0,7); if(sel.value) sel.value = curMonth; ensureFinanceMonth(curMonth); drawFinanceMonth(curMonth);
 }
+
 function drawFinanceMonth(monthStr) {
     const container = document.getElementById('finance-content'); container.innerHTML = "";
     const mIdx = appState.finance.findIndex(f => f.month === monthStr); if(mIdx < 0) return; const f = appState.finance[mIdx]; const getN = (v) => Number(v)||0;
 
     let mealMonthTotal = 0; const[yy, mm] = monthStr.split('-'); const daysInMonth = new Date(yy, mm, 0).getDate();
     for(let i=1; i<=daysInMonth; i++) { let dStr = `${yy}-${mm}-${String(i).padStart(2,'0')}`; let data = appState.dates[dStr]; if(data && data.meals) mealMonthTotal += getN(data.meals.bf?.amount) + getN(data.meals.lu?.amount) + getN(data.meals.di?.amount); }
+    
+    let expTotal = 0, creditTotal = 0; 
+    (f.expenses||[]).forEach(e => { if (!e.isAdvance) expTotal += getN(e.amount); if (e.payment === "クレカ") creditTotal += getN(e.amount); });
+    
     const totalIncome = getN(f.income) + getN(f.extraIncome); const deduct = getN(f.fixed) + getN(f.loan) + getN(f.savings) + getN(f.investment) + mealMonthTotal; const budget = totalIncome - deduct;
-    let expTotal = 0, creditTotal = 0; (f.expenses||[]).forEach(e => { if (!e.isAdvance) expTotal += getN(e.amount); if (e.payment === "クレカ") creditTotal += getN(e.amount); });
     const balance = budget - expTotal;
     const todayObj = new Date(currentDate); let remainingDays = 1;
     if (todayObj.getFullYear() == yy && (todayObj.getMonth() + 1) == mm) remainingDays = daysInMonth - todayObj.getDate() + 1;
@@ -383,8 +417,16 @@ function drawFinanceMonth(monthStr) {
         el('div', {style:'margin-top:10px; font-size:0.8rem; color:var(--warn); background:rgba(255,69,58,0.1); padding:8px; border-radius:var(--radius); text-align:left;'}, `💳 今月のクレカ利用額: ¥${creditTotal.toLocaleString()}`)
     );
     const gridDiv = el('div', {className: 'grid-layout'}); const leftCol = el('div', {className: 'col'});
+    
+    // ★変動費合計の表示を追加
+    const expTitle = el('h2', {className:'red', style:'display:flex; justify-content:space-between; align-items:center;'}, 
+        el('span', {}, "📝 変動費 (明細)"),
+        el('span', {style:'font-size:0.9rem; color:var(--warn); font-family:monospace;'}, `合計: ¥${expTotal.toLocaleString()}`)
+    );
+
     leftCol.appendChild(el('div', {className:'card'},
-        el('h2', {className:'red'}, "📝 変動費 (支出明細)"), el('button', {className:'btn-primary', onClick:()=>openExpenseModal(null, mIdx)}, "＋ 支出を追加"),
+        expTitle,
+        el('button', {className:'btn-primary', onClick:()=>openExpenseModal(null, mIdx)}, "＋ 支出を追加"),
         el('div', {style:'margin-top:15px;'}, ...(f.expenses||[]).sort((a,b)=>b.date-a.date).map(e => 
             el('div', {className:'expense-item', onClick:()=>openExpenseModal(e, mIdx)}, el('div', {}, el('div', {className:'flex'}, el('span', {style:'color:var(--gray); font-size:0.8rem; width:20px;'}, e.date), el('strong', {}, e.name), e.isAdvance ? el('span', {className:'badge bg-sub'}, "立替") : ""), el('div', {style:'font-size:0.75rem; color:var(--gray); margin-top:4px; display:flex; gap:6px;'}, el('span', {className:'badge bg-gray'}, e.category), el('span', {className:'badge bg-gray'}, e.payment))), el('div', {style:'text-align:right;'}, el('div', {style:'font-family:monospace; color:var(--warn); font-weight:bold;'}, `¥${Number(e.amount).toLocaleString()}`), el('div', {style:'font-size:0.8rem; margin-top:4px;'}, e.rating==3?'🤩':e.rating==1?'😞':'😐')))
         ))
@@ -420,26 +462,40 @@ function renderSettings() {
     });
     enableDragSort('settings-categories', s => s.settings.categories);
 
-    // ★サブスク管理（今年想定額の計算とUI強化）
+    // ★サブスク管理（開始月の考慮）
     const subDiv = document.getElementById('settings-subscriptions'); subDiv.innerHTML = "";
-    let futureSubTotal = 0; const cm = new Date().getMonth() + 1; // ざっくり残り月数で計算
+    let futureSubTotal = 0; 
+    const currentY = new Date().getFullYear();
+    const currentM = new Date().getMonth() + 1;
     
     appState.settings.subscriptions.forEach((sub, idx) => {
-        if(sub.isActive) futureSubTotal += sub.amount * (12 - cm + 1);
+        // 想定計算
+        if (sub.isActive && sub.startMonth) {
+            const [sy, sm] = sub.startMonth.split('-').map(Number);
+            if (sy < currentY) {
+                futureSubTotal += sub.amount * (12 - currentM + 1);
+            } else if (sy === currentY) {
+                const startCalcMonth = Math.max(currentM, sm);
+                futureSubTotal += sub.amount * (12 - startCalcMonth + 1);
+            }
+        }
         
-        subDiv.appendChild(el('div', {className: 'list-item', style: `border-left:4px solid ${sub.isActive?'var(--purple)':'#444'}; opacity:${sub.isActive?1:0.6};`}, 
+        subDiv.appendChild(el('div', {className: 'list-item', style: `border-left:4px solid ${sub.isActive?'var(--purple)':'#444'}; opacity:${sub.isActive?1:0.6}; padding:8px;`}, 
             el('div', {className:'flex'}, 
                 el('span', {className:'drag-handle'}, "☰"),
                 el('input', {value: sub.name, placeholder: '名前', style: 'flex:2;', onChange: e => setState(s => s.settings.subscriptions[idx].name = e.target.value, false)}),
-                el('input', {type: 'number', value: sub.amount, placeholder: '金額', style: 'flex:1;', onChange: e => setState(s => s.settings.subscriptions[idx].amount = Number(e.target.value), false)}),
-                el('input', {type: 'number', value: sub.day, placeholder: '日', style: 'width:60px;', onChange: e => setState(s => s.settings.subscriptions[idx].day = Number(e.target.value), false)})
+                el('input', {type: 'number', value: sub.amount, placeholder: '金額', style: 'flex:1;', onChange: e => setState(s => s.settings.subscriptions[idx].amount = Number(e.target.value), false)})
             ),
-            el('div', {className:'flex', style:'margin-top:4px; justify-content:flex-end; padding-right:5px;'},
-                el('label', {className:'flex', style:'margin:0;'}, 
-                    el('input', {type:'checkbox', checked: sub.isActive, style:'width:16px;', onChange: e => setState(s => s.settings.subscriptions[idx].isActive = e.target.checked)}), 
+            el('div', {className:'flex', style:'margin-top:4px; margin-left:30px; gap:10px;'},
+                el('div', {style:'flex:1'}, el('label', {style:'margin:0;'}, "開始月"), el('input', {type: 'month', value: sub.startMonth, style:'padding:6px;', onChange: e => setState(s => s.settings.subscriptions[idx].startMonth = e.target.value, false)})),
+                el('div', {style:'flex:0.5'}, el('label', {style:'margin:0;'}, "支払日"), el('input', {type: 'number', value: sub.day, style:'padding:6px;', onChange: e => setState(s => s.settings.subscriptions[idx].day = Number(e.target.value), false)}))
+            ),
+            el('div', {className:'flex', style:'margin-top:8px; justify-content:flex-end; padding-right:5px;'},
+                el('label', {className:'flex', style:'margin:0; font-weight:bold; color:var(--text);'}, 
+                    el('input', {type:'checkbox', checked: sub.isActive, style:'width:18px; height:18px;', onChange: e => setState(s => s.settings.subscriptions[idx].isActive = e.target.checked)}), 
                     el('span', {}, "稼働中")
                 ),
-                el('button', {className: 'btn-del', style:'padding:4px 8px; margin-left:10px;', onClick: () => setState(s => s.settings.subscriptions.splice(idx, 1))}, "完全削除")
+                el('button', {className: 'btn-del', style:'padding:4px 8px; margin-left:15px;', onClick: () => setState(s => s.settings.subscriptions.splice(idx, 1))}, "完全削除")
             )
         ));
     });
