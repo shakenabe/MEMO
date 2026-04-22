@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>LifeOS Pro Max</title>
+    <title>LifeOS Pro Max - Cyber Edition</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
@@ -15,13 +15,12 @@
     <div class="card text-center" style="max-width: 320px; width: 90%;">
         <div style="font-size: 3rem; margin-bottom: 10px;">🔐</div>
         <h2>LifeOS Pro Max</h2>
-        <p style="font-size:0.8rem; color:var(--gray); margin-bottom: 20px;">クラウドに安全にデータを保存・同期します。</p>
+        <p style="font-size:0.8rem; color:var(--gray); margin-bottom: 20px;">SYSTEM AUTHENTICATION</p>
         <button id="btn-login" class="btn-primary" style="padding: 12px; font-size: 1rem;">Googleでログイン</button>
-        <p style="font-size:0.7rem; color:var(--gray); margin-top: 15px;">※ローカルモードで使用する場合は <code>app.js</code> の <code>useFirebase</code> を false にしてください。</p>
     </div>
 </div>
 
-<!-- アプリ本体 (ログイン後に表示) -->
+<!-- アプリ本体 -->
 <div id="app-screen" style="display: none;">
     <div class="bottom-nav">
         <div class="nav-item active" data-target="view-today"><div class="nav-icon">📝</div>今日</div>
@@ -54,6 +53,7 @@
             </div>
 
             <div class="grid-layout">
+                <!-- 左カラム: ご飯・タスク -->
                 <div class="col">
                     <div class="card">
                         <h2>🍚 今日のご飯管理</h2>
@@ -61,33 +61,35 @@
                     </div>
 
                     <div class="card">
-                        <h2>📝 今日のタスク</h2>
-                        <div class="flex" style="margin-bottom:10px;">
+                        <h2>📝 今日のタスク・リマインダー</h2>
+                        <div class="flex" style="margin-bottom:5px;">
                             <select id="task-cat" style="width: 35%;">
-                                <option value="注意">注意</option><option value="リマインダー">ﾘﾏｲﾝﾀﾞｰ</option>
-                                <option value="業務">業務</option><option value="私用">私用</option>
+                                <option value="注意">注意</option>
+                                <option value="リマインダー">ﾘﾏｲﾝﾀﾞｰ</option>
+                                <option value="業務">業務</option>
+                                <option value="私用">私用</option>
                             </select>
                             <input type="text" id="task-text" placeholder="やるべきこと...">
-                            <button id="btn-add-task" class="btn-primary" style="width:auto; padding:0 15px;">＋</button>
+                        </div>
+                        <div class="flex" style="margin-bottom:10px;">
+                            <input type="datetime-local" id="task-time" style="flex:1; font-size:0.8rem;">
+                            <button id="btn-add-task" class="btn-primary" style="width:auto; padding:0 20px;">追加</button>
                         </div>
                         <div id="task-list"></div>
                     </div>
                 </div>
                 
+                <!-- 右カラム: メモ・今後のリマインダー (旧KPTの場所) -->
                 <div class="col">
                     <div class="card">
                         <h2 class="green">💡 今日のメモ</h2>
                         <textarea id="today-memo" placeholder="今日起きたこと、パッと思いついたこと... (自動保存)"></textarea>
                     </div>
 
-                    <div class="card">
-                        <h2 class="red">🔄 KPT 振り返り</h2>
-                        <div class="kpt-label" style="color:var(--sub);">【Keep】できたこと</div>
-                        <textarea id="ref-keep"></textarea>
-                        <div class="kpt-label" style="color:var(--warn);">【Problem】課題・失敗</div>
-                        <textarea id="ref-problem"></textarea>
-                        <div class="kpt-label" style="color:var(--primary);">【Try】明日の対策</div>
-                        <textarea id="ref-try"></textarea>
+                    <div class="card" style="border-left: 3px solid var(--sub);">
+                        <h2 class="purple">🔔 近日中のリマインダー・予定</h2>
+                        <p style="font-size:0.75rem; color:var(--gray); margin-bottom:10px;">期限が設定されている未完了のタスク一覧</p>
+                        <div id="upcoming-reminders-list"></div>
                     </div>
                 </div>
             </div>
@@ -98,28 +100,35 @@
             <div class="grid-layout">
                 <div class="col">
                     <div class="card">
-                        <div class="flex" style="justify-content:space-between; margin-bottom:15px;">
+                        <div class="flex" style="justify-content:space-between; margin-bottom:10px;">
                             <button id="cal-prev" class="btn-sub" style="width:auto;">◀ 先月</button>
                             <h2 id="cal-title" style="margin:0;"></h2>
                             <button id="cal-next" class="btn-sub" style="width:auto;">来月 ▶</button>
                         </div>
+                        
+                        <!-- ★食事一括入力トグル -->
+                        <div style="background: rgba(10,132,255,0.1); border: 1px solid var(--primary); padding:8px; border-radius:var(--radius); margin-bottom:10px;">
+                            <label class="flex" style="color:var(--text); font-weight:bold;">
+                                <input type="checkbox" id="toggle-cal-meal-mode" style="width:20px; height:20px;"> 🍚 食事一括入力モード (タップで塗りつぶし)
+                            </label>
+                            <div id="cal-meal-toolbar" class="grid-3" style="display:none; margin-top:8px;">
+                                <select id="cal-bulk-bf"></select>
+                                <select id="cal-bulk-lu"></select>
+                                <select id="cal-bulk-di"></select>
+                            </div>
+                        </div>
+
                         <div class="cal-grid" id="cal-header-row">
                             <div class="cal-header">日</div><div class="cal-header">月</div><div class="cal-header">火</div><div class="cal-header">水</div><div class="cal-header">木</div><div class="cal-header">金</div><div class="cal-header">土</div>
                         </div>
                         <div class="cal-grid" id="cal-body"></div>
-                        <div class="flex cal-legend" style="flex-wrap:wrap;">
-                            <div class="flex"><div class="dot" style="background:var(--primary)"></div>タスク</div>
-                            <div class="flex"><div class="dot" style="background:var(--sub)"></div>メモ/KPT</div>
-                            <div class="flex"><div class="dot" style="background:var(--warn)"></div>支出</div>
-                            <div class="flex">👑 NMD</div>
-                        </div>
                     </div>
                 </div>
                 <div class="col">
                     <div class="card" id="cal-preview-container" style="display:none;">
                         <div class="flex" style="justify-content:space-between;">
                             <h2 id="preview-title" class="green"></h2>
-                            <button class="btn-outline" style="width:auto; padding:4px 10px; font-size:0.8rem;" onclick="window.jumpToDate(calSelectedDate); document.querySelector('[data-target=\'view-today\']').click();">編集</button>
+                            <button class="btn-outline" style="width:auto; padding:4px 10px; font-size:0.8rem;" onclick="window.jumpToDate(calSelectedDate); document.querySelector('[data-target=\'view-today\']').click();">その日を編集</button>
                         </div>
                         <div id="preview-content"></div>
                     </div>
@@ -164,27 +173,18 @@
         <div id="view-settings" class="view">
             <div class="grid-layout">
                 <div class="col">
-                    <div class="card">
-                        <h2>🍚 食事カテゴリー設定</h2>
-                        <p style="font-size:0.75rem; color:var(--gray);">ご飯管理で選べるカテゴリー（☰で並べ替え可能）</p>
-                        <div id="settings-meals"></div>
-                        <button id="btn-add-meal-cat" class="btn-sub" style="margin-top:10px;">＋ 食事カテゴリ追加</button>
+                    <div class="card" style="border-left: 4px solid var(--warn);">
+                        <h2 class="red">🎨 システム・テーマ設定</h2>
+                        <select id="settings-theme" style="font-weight:bold;">
+                            <option value="default">🌐 Standard (デフォルト)</option>
+                            <option value="nerv">⚠️ NERV (EVA風 / サイバー)</option>
+                        </select>
                     </div>
 
-                    <div class="card" style="border-left: 3px solid var(--primary);">
-                        <h2>🗓️ 食事の一括登録</h2>
-                        <p style="font-size:0.75rem; color:var(--gray);">指定した期間の食事をまとめて設定します。</p>
-                        <div class="grid-2">
-                            <div><label>開始日</label><input type="date" id="bulk-start"></div>
-                            <div><label>終了日</label><input type="date" id="bulk-end"></div>
-                        </div>
-                        <label>一括設定する内容</label>
-                        <div class="grid-3" style="margin-top:5px;">
-                            <select id="bulk-bf"></select>
-                            <select id="bulk-lu"></select>
-                            <select id="bulk-di"></select>
-                        </div>
-                        <button id="btn-bulk-meals" class="btn-primary" style="margin-top:10px;">一括登録を実行</button>
+                    <div class="card">
+                        <h2>🍚 食事カテゴリー設定</h2>
+                        <div id="settings-meals"></div>
+                        <button id="btn-add-meal-cat" class="btn-sub" style="margin-top:10px;">＋ 食事カテゴリ追加</button>
                     </div>
 
                     <div class="card">
@@ -195,9 +195,9 @@
                 </div>
 
                 <div class="col">
-                    <div class="card">
-                        <h2 class="green">🔄 サブスク自動化設定</h2>
-                        <p style="font-size:0.75rem; color:var(--gray);">設定した「日」を過ぎると支出に自動で追加されます。</p>
+                    <div class="card" style="border-left: 3px solid var(--purple);">
+                        <h2 class="purple">🔄 サブスクリプション管理</h2>
+                        <p style="font-size:0.75rem; color:var(--gray);">カレンダーに予定額が表示されます。<br>【今年の想定支出合計: <strong id="sub-annual-total" style="color:var(--warn);">¥0</strong>】</p>
                         <div id="settings-subscriptions"></div>
                         <button id="btn-add-subscription" class="btn-sub" style="margin-top:10px;">＋ サブスク追加</button>
                     </div>
@@ -213,8 +213,7 @@
                         <button id="btn-logout" class="btn-sub" style="margin-bottom: 15px; border-color:var(--warn); color:var(--warn);">🚪 ログアウト</button>
                         <div style="height:1px; background:#333; margin-bottom:15px;"></div>
                         <button id="btn-export-all" class="btn-primary">全データをダウンロード</button>
-                        <div style="margin-top:15px; font-size:0.9rem;">📥 復元・マージ (旧データ完全互換)</div>
-                        <input type="file" id="file-import" accept=".json">
+                        <input type="file" id="file-import" accept=".json" style="margin-top:10px;">
                     </div>
                 </div>
             </div>
@@ -222,44 +221,21 @@
     </div>
 </div>
 
-<!-- モーダル群 -->
+<!-- モーダル群 (変更なし) -->
 <div id="modal-expense" class="modal-overlay">
     <div class="modal-content">
         <h2>支出の詳細</h2>
-        <input type="hidden" id="exp-id">
-        <label>日付 (日)</label><input type="number" id="exp-date">
-        <label>品名・内容</label><input type="text" id="exp-name">
-        <label>金額 (¥)</label><input type="number" id="exp-amount">
-        <div class="grid-2">
-            <div><label>カテゴリ</label><select id="exp-category"></select></div>
-            <div><label>支払い方法</label><select id="exp-payment"></select></div>
-        </div>
-        <label>タグ (カンマ区切り)</label><input type="text" id="exp-tags">
-        <label>満足度・評価</label>
-        <div class="flex" style="justify-content:space-around; margin:10px 0;">
-            <span class="rating-star" data-val="1">😞 1</span><span class="rating-star" data-val="2">😐 2</span><span class="rating-star" data-val="3">🤩 3</span>
-        </div>
+        <input type="hidden" id="exp-id"><input type="number" id="exp-date" placeholder="日付(日)"><input type="text" id="exp-name" placeholder="品名">
+        <input type="number" id="exp-amount" placeholder="金額"><div class="grid-2"><select id="exp-category"></select><select id="exp-payment"></select></div>
+        <input type="text" id="exp-tags" placeholder="タグ (カンマ区切り)">
+        <div class="flex" style="justify-content:space-around; margin:10px 0;"><span class="rating-star" data-val="1">😞 1</span><span class="rating-star" data-val="2">😐 2</span><span class="rating-star" data-val="3">🤩 3</span></div>
         <input type="hidden" id="exp-rating" value="2">
-        <label class="flex" style="margin: 15px 0; justify-content:flex-start; gap:10px;">
-            <input type="checkbox" id="exp-advance" style="width:20px; height:20px;"><span>立替フラグ</span>
-        </label>
-        <label>メモ</label><textarea id="exp-memo"></textarea>
-        <div class="flex" style="margin-top:20px;">
-            <button id="btn-close-expense" class="btn-sub">キャンセル</button>
-            <button id="btn-save-expense" class="btn-primary">保存</button>
-        </div>
+        <label class="flex"><input type="checkbox" id="exp-advance" style="width:20px; height:20px;"><span>立替フラグ</span></label>
+        <textarea id="exp-memo" placeholder="メモ"></textarea>
+        <div class="flex" style="margin-top:20px;"><button id="btn-close-expense" class="btn-sub">キャンセル</button><button id="btn-save-expense" class="btn-primary">保存</button></div>
     </div>
 </div>
-<div id="modal-annual" class="modal-overlay">
-    <div class="modal-content" style="max-width: 600px; width:95%;">
-        <h2>📊 年間ダッシュボード</h2>
-        <select id="annual-year-select" style="margin-bottom:10px;"></select>
-        <div class="finance-val text-center" id="annual-total-balance" style="margin-bottom:20px;"></div>
-        <canvas id="annual-chart" style="max-height:300px;"></canvas>
-        <button id="btn-close-annual" class="btn-primary" style="margin-top:20px;">閉じる</button>
-    </div>
-</div>
-
+<div id="modal-annual" class="modal-overlay"><div class="modal-content" style="max-width: 600px; width:95%;"><h2>📊 年間ダッシュボード</h2><select id="annual-year-select" style="margin-bottom:10px;"></select><div class="finance-val text-center" id="annual-total-balance" style="margin-bottom:20px;"></div><canvas id="annual-chart" style="max-height:300px;"></canvas><button id="btn-close-annual" class="btn-primary" style="margin-top:20px;">閉じる</button></div></div>
 <script src="app.js"></script>
 </body>
 </html>
